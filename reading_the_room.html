@@ -1,0 +1,1045 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Reading the Room — Triaging the Rapid Response</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+
+  :root{
+    --ink:#0B0F14;        /* monitor-at-3am background */
+    --panel:#131A22;      /* module fill */
+    --panel-2:#0F151C;    /* deeper fill */
+    --line:#243441;       /* hairline borders */
+    --phosphor:#34E29B;   /* green: normal / go / mentation */
+    --pleth:#46D5F2;      /* cyan: SpO2 */
+    --pulse:#FF5C6C;      /* red: HR / arterial / BP */
+    --resp:#F6C445;       /* amber: respiratory rate — the protagonist */
+    --alarm:#FF8A3D;      /* orange: escalate */
+    --mist:#E8EEF2;       /* primary text */
+    --slate:#8A99A6;      /* secondary text */
+    --slate-dim:#5B6B77;  /* tertiary */
+    --maxw:1060px;
+  }
+
+  *{box-sizing:border-box;}
+  html,body{height:100%;}
+  body{
+    margin:0;
+    background:
+      radial-gradient(120% 90% at 50% -10%, #11202b 0%, var(--ink) 55%, #070A0E 100%);
+    color:var(--mist);
+    font-family:'Inter',system-ui,sans-serif;
+    overflow:hidden;
+    -webkit-font-smoothing:antialiased;
+  }
+  body::before{ /* faint instrument grid */
+    content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
+    background-image:linear-gradient(var(--line) 1px,transparent 1px),linear-gradient(90deg,var(--line) 1px,transparent 1px);
+    background-size:44px 44px;opacity:.05;
+  }
+
+  /* ---------- persistent monitor bar ---------- */
+  .topbar{
+    position:fixed;top:0;left:0;right:0;height:62px;z-index:30;
+    display:flex;align-items:stretch;gap:0;
+    background:linear-gradient(180deg,#0e151c,#0b1117);
+    border-bottom:1px solid var(--line);
+  }
+  .topbar .brand{
+    display:flex;align-items:center;gap:9px;padding:0 16px;border-right:1px solid var(--line);
+    font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.12em;color:var(--slate);white-space:nowrap;
+  }
+  .brand .dot{width:8px;height:8px;border-radius:50%;background:var(--phosphor);box-shadow:0 0 10px var(--phosphor);animation:blip 2.4s steps(1) infinite;}
+  @keyframes blip{0%,92%{opacity:1}93%,100%{opacity:.25}}
+  .topbar .wave{flex:1 1 auto;position:relative;min-width:60px;}
+  #ecgBar{display:block;width:100%;height:100%;}
+  .topbar .reads{display:flex;align-items:center;gap:0;border-left:1px solid var(--line);}
+  .read{padding:0 14px;display:flex;flex-direction:column;justify-content:center;border-right:1px solid var(--line);min-width:74px;}
+  .read:last-child{border-right:none;}
+  .read .lbl{font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.16em;color:var(--slate-dim);}
+  .read .val{font-family:'IBM Plex Mono',monospace;font-size:19px;font-weight:600;line-height:1.05;}
+  .read.hr .val{color:var(--pulse);} .read.spo2 .val{color:var(--pleth);}
+  .read.rr .val{color:var(--resp);} .read.bp .val{color:var(--pulse);font-size:15px;}
+  @media (max-width:720px){ .read.bp,.read.spo2{display:none;} .topbar .brand span{display:none;} }
+
+  /* ---------- deck ---------- */
+  .deck{position:fixed;top:62px;left:0;right:0;bottom:0;z-index:5;}
+  .slide{
+    position:absolute;inset:0;display:flex;flex-direction:column;justify-content:center;
+    padding:38px clamp(22px,6vw,84px) 70px;
+    opacity:0;transform:translateY(10px);pointer-events:none;
+    transition:opacity .5s ease,transform .5s ease;overflow-y:auto;
+  }
+  .slide.active{opacity:1;transform:translateY(0);pointer-events:auto;}
+  .wrap{width:100%;max-width:var(--maxw);margin:0 auto;}
+
+  .eyebrow{
+    font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:500;letter-spacing:.24em;
+    text-transform:uppercase;color:var(--resp);margin:0 0 16px;display:flex;align-items:center;gap:10px;
+  }
+  .eyebrow::before{content:"";width:26px;height:1px;background:var(--resp);opacity:.7;}
+  .eyebrow.cy{color:var(--pleth);} .eyebrow.cy::before{background:var(--pleth);}
+  .eyebrow.gr{color:var(--phosphor);} .eyebrow.gr::before{background:var(--phosphor);}
+  .eyebrow.rd{color:var(--pulse);} .eyebrow.rd::before{background:var(--pulse);}
+
+  h1{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:clamp(34px,6vw,68px);line-height:1.02;letter-spacing:-.02em;margin:0 0 18px;}
+  h2{font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:clamp(26px,4.2vw,46px);line-height:1.06;letter-spacing:-.015em;margin:0 0 18px;}
+  .lede{font-size:clamp(16px,1.9vw,20px);line-height:1.55;color:#C9D4DC;max-width:74ch;margin:0 0 14px;}
+  .lede strong{color:var(--mist);font-weight:600;}
+  .src{font-family:'IBM Plex Mono',monospace;font-size:11.5px;letter-spacing:.04em;color:var(--slate-dim);margin-top:18px;}
+  .accent-r{color:var(--resp);} .accent-c{color:var(--pleth);} .accent-g{color:var(--phosphor);} .accent-p{color:var(--pulse);} .accent-a{color:var(--alarm);}
+
+  /* title */
+  .titlecard .kicker{font-family:'IBM Plex Mono',monospace;font-size:12px;letter-spacing:.22em;color:var(--slate);margin-bottom:22px;}
+  .heromon{margin:8px 0 26px;border:1px solid var(--line);border-radius:14px;background:linear-gradient(180deg,var(--panel),var(--panel-2));overflow:hidden;box-shadow:0 24px 60px -30px #000;}
+  .heromon .lanes{display:flex;}
+  #ecgHero{display:block;width:100%;height:150px;}
+  .heromon .side{width:148px;border-left:1px solid var(--line);display:flex;flex-direction:column;}
+  .heromon .side .cell{flex:1;padding:10px 14px;display:flex;flex-direction:column;justify-content:center;border-bottom:1px solid var(--line);}
+  .heromon .side .cell:last-child{border-bottom:none;}
+  .heromon .side .l{font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:.16em;color:var(--slate-dim);}
+  .heromon .side .v{font-family:'IBM Plex Mono',monospace;font-size:26px;font-weight:600;line-height:1;}
+  .v.amber{color:var(--resp);} .v.cyan{color:var(--pleth);} .v.red{color:var(--pulse);}
+  @media (max-width:640px){ .heromon .side{width:108px;} .heromon .side .v{font-size:20px;} #ecgHero{height:118px;} }
+
+  /* generic module grid */
+  .grid{display:grid;gap:14px;margin-top:8px;}
+  .g2{grid-template-columns:repeat(2,1fr);} .g3{grid-template-columns:repeat(3,1fr);} .g4{grid-template-columns:repeat(4,1fr);}
+  @media (max-width:780px){ .g2,.g3,.g4{grid-template-columns:1fr;} }
+  .mod{background:linear-gradient(180deg,var(--panel),var(--panel-2));border:1px solid var(--line);border-radius:12px;padding:16px 17px;position:relative;}
+  .mod .mh{font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--slate);margin-bottom:7px;display:flex;align-items:center;gap:8px;}
+  .mod .mb{font-size:14.5px;line-height:1.5;color:#C9D4DC;}
+  .mod .mb b{color:var(--mist);}
+  .mod .big{font-family:'Space Grotesk',sans-serif;font-size:30px;font-weight:600;line-height:1;margin-bottom:4px;}
+  .chdot{width:9px;height:9px;border-radius:50%;display:inline-block;flex:none;}
+  .b-amber{border-color:#4a4022;} .b-cyan{border-color:#234652;} .b-red{border-color:#4a2a30;} .b-green{border-color:#234a3a;}
+
+  /* pull quote tile */
+  .pull{margin-top:20px;border-left:3px solid var(--resp);background:linear-gradient(90deg,rgba(246,196,69,.07),transparent);
+    padding:15px 20px;border-radius:0 10px 10px 0;font-family:'Space Grotesk',sans-serif;font-size:clamp(16px,2.1vw,22px);font-weight:500;color:var(--mist);line-height:1.35;}
+  .pull.cy{border-color:var(--pleth);background:linear-gradient(90deg,rgba(70,213,242,.07),transparent);}
+  .pull.al{border-color:var(--alarm);background:linear-gradient(90deg,rgba(255,138,61,.08),transparent);}
+  .pull.gr{border-color:var(--phosphor);background:linear-gradient(90deg,rgba(52,226,155,.07),transparent);}
+
+  /* channel chips (slide 5) */
+  .chips{display:flex;flex-wrap:wrap;gap:10px;margin-top:6px;}
+  .chip{display:flex;align-items:center;gap:10px;background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:9px 15px 9px 12px;}
+  .chip .nm{font-family:'IBM Plex Mono',monospace;font-weight:600;font-size:13px;letter-spacing:.04em;}
+  .chip .tg{font-size:11.5px;color:var(--slate);}
+  .chip.hi{border-color:#5a4d27;box-shadow:0 0 0 1px #3a3318 inset, 0 8px 30px -16px var(--resp);}
+
+  /* escalation ladder (slide 4) */
+  .ladder{display:flex;flex-direction:column;gap:9px;}
+  .rung{display:flex;gap:13px;align-items:flex-start;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 15px;}
+  .rung .bar{width:5px;align-self:stretch;border-radius:3px;flex:none;}
+  .rung .tier{font-family:'IBM Plex Mono',monospace;font-size:12px;letter-spacing:.06em;color:var(--mist);font-weight:600;min-width:128px;}
+  .rung .act{font-size:13.5px;color:var(--slate);line-height:1.45;}
+  .rung.flag{border-color:#5a3320;background:linear-gradient(90deg,rgba(255,138,61,.08),var(--panel));}
+
+  /* quiz */
+  .qstem{font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:clamp(20px,3vw,30px);line-height:1.18;letter-spacing:-.01em;margin:0 0 8px;}
+  .vignette{background:var(--panel-2);border:1px solid var(--line);border-left:3px solid var(--pleth);border-radius:0 10px 10px 0;padding:13px 16px;margin:0 0 18px;font-family:'IBM Plex Mono',monospace;font-size:13px;line-height:1.6;color:#BBD6E0;}
+  .vignette b{color:#fff;}
+  .opts{display:grid;gap:11px;margin-top:6px;}
+  .opt{display:flex;align-items:center;gap:14px;text-align:left;width:100%;cursor:pointer;
+    background:linear-gradient(180deg,var(--panel),var(--panel-2));border:1px solid var(--line);border-radius:11px;
+    padding:15px 17px;color:var(--mist);font-family:'Inter',sans-serif;font-size:15.5px;line-height:1.4;
+    transition:transform .12s ease,border-color .15s ease,background .15s ease;}
+  .opt:hover{transform:translateX(4px);border-color:var(--slate-dim);}
+  .opt:focus-visible{outline:2px solid var(--pleth);outline-offset:2px;}
+  .opt .key{font-family:'IBM Plex Mono',monospace;font-weight:600;font-size:13px;color:var(--slate);border:1px solid var(--line);border-radius:7px;width:30px;height:30px;display:flex;align-items:center;justify-content:center;flex:none;}
+  .opt.correct{border-color:var(--phosphor);background:linear-gradient(180deg,rgba(52,226,155,.14),rgba(52,226,155,.04));}
+  .opt.correct .key{border-color:var(--phosphor);color:var(--phosphor);}
+  .opt.wrong{border-color:var(--pulse);background:linear-gradient(180deg,rgba(255,92,108,.12),transparent);opacity:.92;}
+  .opt.wrong .key{border-color:var(--pulse);color:var(--pulse);}
+  .opt.muted{opacity:.5;}
+  .opt[disabled]{cursor:default;}
+  .explain{margin-top:16px;border:1px solid var(--line);border-left:3px solid var(--phosphor);border-radius:0 11px 11px 0;
+    background:linear-gradient(90deg,rgba(52,226,155,.06),var(--panel-2));padding:16px 19px;
+    max-height:0;overflow:hidden;opacity:0;transition:max-height .45s ease,opacity .4s ease,padding .3s ease;padding-top:0;padding-bottom:0;}
+  .explain.show{max-height:520px;opacity:1;padding-top:16px;padding-bottom:16px;}
+  .explain .et{font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.16em;color:var(--phosphor);text-transform:uppercase;margin-bottom:8px;}
+  .explain p{margin:0;font-size:14.5px;line-height:1.6;color:#C9D4DC;}
+  .explain p b{color:var(--mist);}
+  .explain .src{margin-top:10px;}
+
+  /* footer / nav */
+  .footer{position:fixed;left:0;right:0;bottom:0;height:54px;z-index:30;display:flex;align-items:center;justify-content:space-between;
+    padding:0 clamp(16px,4vw,40px);background:linear-gradient(0deg,#0b1117,transparent);}
+  .progress{display:flex;align-items:center;gap:14px;}
+  .pcount{font-family:'IBM Plex Mono',monospace;font-size:12px;letter-spacing:.1em;color:var(--slate);}
+  .pbar{width:min(34vw,260px);height:3px;background:var(--line);border-radius:2px;overflow:hidden;}
+  .pfill{height:100%;width:0;background:linear-gradient(90deg,var(--resp),var(--phosphor));transition:width .45s ease;}
+  .nav{display:flex;gap:9px;}
+  .nav button{font-family:'IBM Plex Mono',monospace;font-size:12px;letter-spacing:.06em;color:var(--mist);background:var(--panel);
+    border:1px solid var(--line);border-radius:8px;padding:8px 14px;cursor:pointer;transition:border-color .15s ease,background .15s ease;}
+  .nav button:hover{border-color:var(--slate);background:#192230;}
+  .nav button:focus-visible{outline:2px solid var(--resp);outline-offset:2px;}
+  .nav button:disabled{opacity:.3;cursor:default;}
+  .nav button.mode{border-color:var(--resp);color:var(--resp);}
+  .nav button.mode[aria-pressed="true"]{border-color:var(--pleth);color:var(--pleth);background:#0f1c22;}
+  .hint{font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:var(--slate-dim);letter-spacing:.08em;}
+  @media (max-width:640px){ .hint{display:none;} .pbar{width:30vw;} }
+
+  @media (prefers-reduced-motion:reduce){
+    .slide{transition:opacity .2s ease;transform:none!important;}
+    .opt:hover{transform:none;}
+    .brand .dot{animation:none;}
+  }
+</style>
+</head>
+<body>
+
+<!-- ===== persistent monitor bar ===== -->
+<div class="topbar">
+  <div class="brand"><span class="dot"></span><span>BUMC&nbsp;TUCSON · RRT MONITOR</span></div>
+  <div class="wave"><canvas id="ecgBar"></canvas></div>
+  <div class="reads">
+    <div class="read hr"><span class="lbl">HR</span><span class="val" id="rHR">96</span></div>
+    <div class="read spo2"><span class="lbl">SpO₂</span><span class="val" id="rSp">94</span></div>
+    <div class="read rr"><span class="lbl">RR</span><span class="val" id="rRR">22</span></div>
+    <div class="read bp"><span class="lbl">NIBP</span><span class="val" id="rBP">118/74</span></div>
+  </div>
+</div>
+
+<div class="deck" id="deck">
+
+  <!-- 1 · TITLE -->
+  <section class="slide titlecard active">
+    <div class="wrap">
+      <div class="kicker">INTERNAL MEDICINE · ACADEMIC HALF-DAY · THE RAPID RESPONSE</div>
+      <h1>Reading the Room</h1>
+      <div class="heromon">
+        <div class="lanes">
+          <canvas id="ecgHero"></canvas>
+          <div class="side">
+            <div class="cell"><span class="l">HR · bpm</span><span class="v red" id="hHR">96</span></div>
+            <div class="cell"><span class="l">SpO₂ · %</span><span class="v cyan" id="hSp">94</span></div>
+            <div class="cell"><span class="l">RR · /min</span><span class="v amber" id="hRR">28</span></div>
+          </div>
+        </div>
+      </div>
+      <p class="lede" style="max-width:72ch">How to <strong>run</strong> a rapid response — the choreography, the team, your role — then how to <strong>think through</strong> one: which vitals to trust, what tools to reach for, and who needs the unit.</p>
+      <p class="src">For the intern running the show; attendings will pick up a thing or two. → / Space to advance.&nbsp;&nbsp;Footer toggle: ⚡ 30-min core, or the full deck.</p>
+    </div>
+  </section>
+
+  <!-- L1 · PART 1 · the page -->
+  <section class="slide">
+    <div class="wrap">
+      <div class="eyebrow">Part 1 · the choreography</div>
+      <h2>First learn the <span class="accent-r">dance.</span><br>Then learn the medicine.</h2>
+      <p class="lede">A rapid response is a team scrambled to a deteriorating ward patient to head off a code. Before any physiology — here's how one actually <strong>runs at Banner</strong>, because the choreography is half the battle.</p>
+      <div class="vignette" style="border-left-color:var(--alarm)">OVERHEAD + CODE PAGER: &nbsp;"RAPID RESPONSE · ADULT · [OLD / NEW TOWER] · FLOOR [X] · ROOM [X]"</div>
+      <div class="grid g3" style="margin-top:6px">
+        <div class="mod"><div class="mh">How you hear it</div><div class="mb">Overhead, then the <b>code pager.</b> Be somewhere you can actually hear the overhead call.</div></div>
+        <div class="mod"><div class="mh">Where they happen</div><div class="mb">Anywhere — rooms, imaging, endoscopy, dialysis, CARS; Old <b>and</b> New Tower.</div></div>
+        <div class="mod"><div class="mh">Who's up</div><div class="mb">A rotating IM wards team (<b>teams 1–6</b>) carries rapid/code by day; <b>night float</b> covers overnight.</div></div>
+      </div>
+      <p class="src">Banner – University Medical Center Tucson · IM rapid/code workflow.</p>
+    </div>
+  </section>
+
+  <!-- L2 · the approach -->
+  <section class="slide">
+    <div class="wrap">
+      <div class="eyebrow rd">The approach</div>
+      <h2>Walk briskly. <span class="accent-p">Do not run.</span></h2>
+      <p class="lede">Stop what you're doing and head over right away — but don't sprint in. The heart rate you walk in with becomes the <strong>room's</strong> heart rate.</p>
+      <div class="grid g2" style="margin-top:6px">
+        <div class="mod"><div class="mh">On the way</div><div class="mb">If it's a long walk, <b>assign roles</b> and rough out the likely case and first moves before you arrive.</div></div>
+        <div class="mod"><div class="mh">At the door</div><div class="mb">Expect a crowd and the <b>code cart</b> (arrest meds + equipment). Take one breath; look at your team.</div></div>
+      </div>
+      <div class="pull">"Walking in: 'Rapid team's here — how can we help?' Your calm is contagious. So is your panic. Pick one."</div>
+      <p class="src">Banner IM rapid response orientation.</p>
+    </div>
+  </section>
+
+  <!-- L3 · the cast -->
+  <section class="slide">
+    <div class="wrap">
+      <div class="eyebrow cy">The cast</div>
+      <h2>You are <span class="accent-c">never</span> doing this alone.</h2>
+      <p class="lede">Walk in and a full team is already working. Know who's who — each is a resource, and most can offer suggestions when you're stuck:</p>
+      <div class="chips" style="margin-top:6px">
+        <div class="chip"><span class="chdot" style="background:var(--phosphor)"></span><span class="nm">Bedside + floor RNs</span></div>
+        <div class="chip"><span class="chdot" style="background:var(--phosphor)"></span><span class="nm">SWAT RN</span></div>
+        <div class="chip"><span class="chdot" style="background:var(--pleth)"></span><span class="nm">Pharmacy</span></div>
+        <div class="chip"><span class="chdot" style="background:var(--resp)"></span><span class="nm">Respiratory therapy</span></div>
+        <div class="chip"><span class="chdot" style="background:var(--pulse)"></span><span class="nm">EKG tech</span></div>
+        <div class="chip"><span class="chdot" style="background:var(--mist)"></span><span class="nm">MAs</span></div>
+        <div class="chip"><span class="chdot" style="background:var(--alarm)"></span><span class="nm">ICU charge RN · MICU / SICU / Neuro / CVICU</span></div>
+        <div class="chip"><span class="chdot" style="background:var(--slate)"></span><span class="nm">Sometimes the primary team</span></div>
+      </div>
+      <div class="pull cy">"We're all in this together — so use the room. The best leaders borrow brains."</div>
+      <p class="src">Typical Banner rapid response team composition.</p>
+    </div>
+  </section>
+
+  <!-- L4 · leading it -->
+  <section class="slide">
+    <div class="wrap">
+      <div class="eyebrow">If you're running it</div>
+      <h2>Head of the bed. Eyes on patient <span class="accent-r">and</span> monitor. Talk out loud.</h2>
+      <div class="grid g2" style="margin-top:6px">
+        <div class="mod"><div class="mh">Set up</div><div class="mb">Stand at the <b>head of the bed</b>, assign roles, and lay eyes on the <b>patient and the vitals</b> at the same time.</div></div>
+        <div class="mod"><div class="mh">Get the story</div><div class="mb">Ask the bedside RN <b>why the rapid was called</b> — your best source unless a physician's already there. Recheck vitals throughout.</div></div>
+        <div class="mod"><div class="mh">Narrate</div><div class="mb"><b>No one reads your mind.</b> Say what you want and why; call out what's ruled in and ruled out. It builds the team's confidence and your own.</div></div>
+        <div class="mod"><div class="mh">When stuck</div><div class="mb">Asking the room for ideas is a <b>strength.</b> You make the final call — credit good suggestions out loud, and it builds the team.</div></div>
+      </div>
+      <div class="pull">"Thinking out loud isn't insecurity. It's leadership with the volume turned up."</div>
+      <p class="src">Banner IM rapid response leader guidance.</p>
+    </div>
+  </section>
+
+  <!-- L5 · supporting it -->
+  <section class="slide">
+    <div class="wrap">
+      <div class="eyebrow gr">If you're support</div>
+      <h2>Take your position. <span class="accent-g">Close the loop.</span> Write it down.</h2>
+      <div class="grid g3" style="margin-top:6px">
+        <div class="mod"><div class="mh">Pick your post</div><div class="mb">Bedside helping the leader think, or on the <b>computer</b> pulling the chart and placing orders — and <b>writing down</b> what was ordered.</div></div>
+        <div class="mod"><div class="mh">Closed loop</div><div class="mb">"Please order a VBG with a lactic acid." → <b>"VBG with lactic acid, ordered."</b> Every order, every time.</div></div>
+        <div class="mod"><div class="mh">Be the runner</div><div class="mb">Sometimes you're calling <b>family</b> or the <b>MICU</b> while MAs and RNs grab supplies.</div></div>
+      </div>
+      <div class="pull gr">"Stress deletes memory first. If it left someone's mouth as an order, it should land on paper."</div>
+      <p class="src">Banner IM rapid response support roles.</p>
+    </div>
+  </section>
+
+  <!-- L6 · QUIZ · close the loop -->
+  <section class="slide" data-quiz>
+    <div class="wrap">
+      <div class="eyebrow">Pop quiz · close the loop</div>
+      <p class="qstem">You're the support resident on the computer. The leader calls out, "Order a VBG with a lactic acid." Safest response?</p>
+      <div class="opts" data-answer="2">
+        <button class="opt"><span class="key">A</span><span>Order it and keep scrolling — no need to announce it</span></button>
+        <button class="opt"><span class="key">B</span><span>Ask the bedside RN whether they think it's necessary first</span></button>
+        <button class="opt"><span class="key">C</span><span>"VBG with lactic acid — ordering now," then "ordered" once it's in</span></button>
+        <button class="opt"><span class="key">D</span><span>Make a mental note and bring it up during the debrief</span></button>
+      </div>
+      <div class="explain">
+        <div class="et">C · Close the loop</div>
+        <p>Repeat the order back so the whole room hears it landed, place it, then <b>confirm out loud when it's done</b> ("VBG's in"). It's the cheapest fix for the two classic rapid-response failures: the order <b>nobody actually placed</b>, and the order <b>placed twice.</b> And if you're on the keyboard, jot it down — stress deletes memory first.</p>
+        <p class="src">Banner IM rapid response; closed-loop communication.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- L7 · the exit -->
+  <section class="slide">
+    <div class="wrap">
+      <div class="eyebrow rd">The exit</div>
+      <h2>Don't leave a <span class="accent-p">worried nurse</span> behind.</h2>
+      <div class="grid g2" style="margin-top:6px">
+        <div class="mod"><div class="mh">Before you call it</div><div class="mb">Confirm with the <b>whole team</b> (RNs, SWAT, RT) that everything's been done to prevent an emergency, and that there's a <b>clear plan the primary team knows.</b> Never end with the bedside RN still worried.</div></div>
+        <div class="mod"><div class="mh">You don't have to fix it all</div><div class="mb">Notify the primary team at the <b>start</b>; they take over. Then write a <b>brief rapid note</b> with the key details.</div></div>
+      </div>
+      <div class="mod" style="margin-top:14px"><div class="mh">Debrief</div><div class="mb">If there's time, huddle: <b>what went well, what to improve</b>, and re-examine the differential — ideally with the whole team. Two minutes here makes the next rapid better.</div></div>
+      <div class="pull al">"A rapid ends when there's a plan — not when you walk out the door."</div>
+      <p class="src">Banner IM rapid response wrap-up &amp; debrief.</p>
+    </div>
+  </section>
+
+  <!-- 2 · THE PROBLEM -->
+  <section class="slide">
+    <div class="wrap">
+      <div class="eyebrow rd">Part 2 · the thinking · why rapids work</div>
+      <h2>Patients announce the crash <span class="accent-r">before</span> they crash.</h2>
+      <p class="lede">Up to <strong>~80%</strong> of patients show abnormal vital signs in the <strong>24 hours before</strong> a cardiac arrest, unplanned ICU transfer, or death. Yet <strong>20–30%</strong> of ward patients receive substandard care before reaching the unit, and the majority of those events were potentially preventable.</p>
+      <p class="lede">The gap is rarely knowledge. It's <strong>noticing in time.</strong> That gap has a name: <span class="accent-a">failure to rescue.</span></p>
+      <div class="pull al">"The vitals were already in the chart. The problem was that nobody acted on them."</div>
+      <p class="src">SCCM Recognizing & Responding to Deterioration guidelines (2023); classic deterioration cohorts.</p>
+    </div>
+  </section>
+
+  <!-- 3 · QUIZ 1 -->
+  <section class="slide" data-quiz>
+    <div class="wrap">
+      <div class="eyebrow">Pop quiz · does this actually work?</div>
+      <p class="qstem">An RRT rolls to the bedside. Is this saving lives — or just generating documentation?</p>
+      <div class="opts" data-answer="1">
+        <button class="opt"><span class="key">A</span><span>Pure theater — no real mortality benefit</span></button>
+        <button class="opt"><span class="key">B</span><span>~25% lower hospital mortality <em>and</em> roughly a third fewer ward cardiac arrests</span></button>
+        <button class="opt"><span class="key">C</span><span>Fewer arrests, but it paradoxically raises mortality</span></button>
+        <button class="opt"><span class="key">D</span><span>Only matters once the patient is already in the ICU</span></button>
+      </div>
+      <div class="explain">
+        <div class="et">B · The cavalry is real</div>
+        <p>Pooled RCT and meta-analytic data show rapid response teams cut <b>hospital mortality by ~26%</b> (RR ≈ 0.74) and <b>non-ICU cardiac arrests by ~35%</b> (RR ≈ 0.65) — in adults <em>and</em> children. A nationwide Dutch rollout across <b>166,000+ patients</b> reduced the composite of arrest, unplanned ICU admission, or death. The catch: the system only works <b>if you call it.</b></p>
+        <p class="src">SCCM 2023; Chan et al., RRT meta-analysis, Arch Intern Med 2010; Dutch nationwide RRS trial.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 4 · HOW IT CHANGES MANAGEMENT + ladder -->
+  <section class="slide">
+    <div class="wrap">
+      <div class="eyebrow gr">What actually changes at the bedside</div>
+      <h2>The earliest trigger isn't a number.<br>It's a nurse who's <span class="accent-g">worried.</span></h2>
+      <p class="lede">The most common real-world RRT triggers are low SpO₂, low systolic BP, altered mentation — and plain <strong>staff concern</strong>, which frequently fires <em>before</em> any value crosses a threshold. Intensivist-led teams also reduce ICU readmissions and prompt earlier, more appropriate goals-of-care conversations. An RRT isn't just resuscitation — it's a <strong>second brain</strong> in the room.</p>
+      <div class="ladder" style="margin-top:18px">
+        <div class="rung"><div class="bar" style="background:var(--phosphor)"></div><div class="tier">NEWS 0–4</div><div class="act">Routine monitoring — keep watching.</div></div>
+        <div class="rung flag"><div class="bar" style="background:var(--alarm)"></div><div class="tier">Any single&nbsp;= 3</div><div class="act"><b style="color:var(--alarm)">Red flag.</b> One extreme value (e.g. AVPU not "Alert") earns urgent bedside review even if the total score is low.</div></div>
+        <div class="rung"><div class="bar" style="background:var(--resp)"></div><div class="tier">NEWS 5–6</div><div class="act">Urgent review by a clinician with acute-care competencies.</div></div>
+        <div class="rung"><div class="bar" style="background:var(--pulse)"></div><div class="tier">NEWS ≥ 7</div><div class="act">Emergency response — activate the team, continuous monitoring, consider ICU.</div></div>
+      </div>
+      <p class="src">NEWS2 (Royal College of Physicians); SCCM 2023.</p>
+    </div>
+  </section>
+
+  <!-- 5 · SIX GAUGES -->
+  <section class="slide">
+    <div class="wrap">
+      <div class="eyebrow cy">Your instrument panel</div>
+      <h2>Six gauges. They are <span class="accent-c">not</span> created equal.</h2>
+      <p class="lede">Every rapid response begins the same way: you stare at the monitor. But the monitor weights every vital the same — and physiology doesn't. Some signs move <strong>early</strong> and predict <strong>hard.</strong> Others stay reassuringly normal while the patient circles the drain. The ranking, color-coded the way the monitor already trains your eye:</p>
+      <div class="chips">
+        <div class="chip hi"><span class="chdot" style="background:var(--resp)"></span><span class="nm" style="color:var(--resp)">RR</span><span class="tg">earliest to move · best single predictor</span></div>
+        <div class="chip"><span class="chdot" style="background:var(--pleth)"></span><span class="nm" style="color:var(--pleth)">SpO₂</span><span class="tg">powerful — when you can trust it</span></div>
+        <div class="chip"><span class="chdot" style="background:var(--pulse)"></span><span class="nm" style="color:var(--pulse)">SBP</span><span class="tg">heavy hitter when low · lies when "normal"</span></div>
+        <div class="chip"><span class="chdot" style="background:var(--pulse)"></span><span class="nm" style="color:var(--pulse)">HR</span><span class="tg">context-dependent · bradycardia ≠ safe</span></div>
+        <div class="chip"><span class="chdot" style="background:var(--phosphor)"></span><span class="nm" style="color:var(--phosphor)">Mentation</span><span class="tg">any change scores maximally</span></div>
+        <div class="chip"><span class="chdot" style="background:var(--slate)"></span><span class="nm" style="color:var(--slate)">Temp</span><span class="tg">weakest predictor of acute arrest</span></div>
+      </div>
+      <p class="src">Matched case-control & nested cohort data on in-hospital arrest.</p>
+    </div>
+  </section>
+
+  <!-- 6 · RR IS THE HERO -->
+  <section class="slide">
+    <div class="wrap">
+      <div class="eyebrow">The protagonist</div>
+      <h2>Respiratory rate is the <span class="accent-r">smoke alarm.</span></h2>
+      <p class="lede">It's usually the <strong>first</strong> vital to drift when a patient deteriorates, and as a single sign it <strong>out-predicts the rest</strong> (max RR AUC ≈ 0.72 vs. max HR ≈ 0.68; temperature is nearly useless for acute arrest). It's also the <strong>cheapest</strong> thing in the room — no probe, no cuff, no cost.</p>
+      <p class="lede">So naturally, it's the one we measure <span class="accent-a">worst.</span></p>
+      <div class="pull">"Tachypnea is RR ≥ 20. Don't trust the chart — walk in, and count it yourself for a full minute."</div>
+      <p class="src">MGH Housestaff Manual 2025–26, Respiratory Distress; Churpek et al.</p>
+    </div>
+  </section>
+
+  <!-- 7 · QUIZ 2 (digit preference) -->
+  <section class="slide" data-quiz>
+    <div class="wrap">
+      <div class="eyebrow">Pop quiz · the fun one</div>
+      <p class="qstem">Pull 37,000 charted respiratory rates from real inpatients. What does the distribution look like?</p>
+      <div class="opts" data-answer="0">
+        <button class="opt"><span class="key">A</span><span>A spike at <em>18 and 20</em> — and almost nowhere else</span></button>
+        <button class="opt"><span class="key">B</span><span>A smooth bell curve centered around 14</span></button>
+        <button class="opt"><span class="key">C</span><span>Evenly spread across 12–24</span></button>
+        <button class="opt"><span class="key">D</span><span>Bimodal, peaking at 12 and 30</span></button>
+      </div>
+      <div class="explain">
+        <div class="et">A · "Is everyone really breathing 20 times a minute?"</div>
+        <p>Across <b>36,966 hospitalizations</b>, charted RR wasn't a bell curve — it was sharply right-skewed and piled onto <b>18 and 20</b> ("digit preference"), even in patients who were <b>hypoxic or had cardiopulmonary disease.</b> The number in the chart is frequently a polite fiction. The twist that flips the lesson: when humans actually <em>count</em>, that manual RR <b>out-predicts the automated monitor</b> for ICU transfer. So the takeaway isn't "trust the machine" — it's <b>be the person who counts.</b></p>
+        <p class="src">Badawy et al., BMJ Qual Saf 2017; Churpek et al., 2018.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 8 · HIERARCHY / count -->
+  <section class="slide" data-tier="ext">
+    <div class="wrap">
+      <div class="eyebrow rd">The pecking order</div>
+      <h2>One abnormal vital is bad.<br>The <span class="accent-p">count</span> is what kills.</h2>
+      <p class="lede">In case-control data, the heaviest single hitters for impending arrest were severe hypotension (<strong>SBP ≤ 80, OR ≈ 15</strong>), a collapsing oxygenation ratio (<strong>OR ≈ 14</strong>), and <strong>NEWS2 ≥ 7</strong> (OR ≈ 12). But the cleaner signal is the <strong>number</strong> of simultaneously deranged vitals — risk climbs stepwise with each one.</p>
+      <div class="grid g3" style="margin-top:18px">
+        <div class="mod"><div class="big accent-p">~15×</div><div class="mb">odds of arrest with <b>SBP ≤ 80</b></div></div>
+        <div class="mod"><div class="big accent-c">~14×</div><div class="mb">with a crashing <b>SpO₂ : FiO₂</b> ratio</div></div>
+        <div class="mod"><div class="big accent-r">0.77</div><div class="mb">AUC of an <b>aggregate score</b> — it beats any lone vital</div></div>
+      </div>
+      <div class="pull">"Abnormal vitals are cockroaches — if you see one, there are more, and each one multiplies the risk."</div>
+    </div>
+  </section>
+
+  <!-- 9 · SpO2 traps -->
+  <section class="slide">
+    <div class="wrap">
+      <div class="eyebrow cy">Gauge #1 that lies · SpO₂</div>
+      <h2>The pulse ox is confidently wrong<br>more often than you think.</h2>
+      <div class="grid g3" style="margin-top:8px">
+        <div class="mod b-cyan"><div class="mh"><span class="chdot" style="background:var(--pleth)"></span>Occult hypoxemia</div><div class="mb">Pulse oximetry <b>overestimates</b> SpO₂ in patients with darker skin — true hypoxemia is missed roughly <b>3× as often.</b> A "94%" can hide a real desaturation.</div></div>
+        <div class="mod b-cyan"><div class="mh"><span class="chdot" style="background:var(--pleth)"></span>Bad perfusion</div><div class="mb">In vasoconstriction or low flow, the number is <b>garbage.</b> If the <b>pleth waveform</b> is junk, so is the saturation. Get an ABG.</div></div>
+        <div class="mod b-cyan"><div class="mh"><span class="chdot" style="background:var(--pleth)"></span>The calibration cliff</div><div class="mb">SpO₂ ~90% already means PaO₂ ~60 mmHg. <b>Below 90%, small SpO₂ drops = large PaO₂ drops.</b></div></div>
+      </div>
+      <div class="pull cy">"Look at the pleth waveform before you believe the number on top of it."</div>
+      <p class="src">Sjoding et al., NEJM 2020; JAMA 2022; MGH Manual, Hypoxemia &amp; Hypercapnia.</p>
+    </div>
+  </section>
+
+  <!-- 9b · QUIZ 03 · occult hypoxemia -->
+  <section class="slide" data-quiz data-tier="ext">
+    <div class="wrap">
+      <div class="eyebrow">Pop quiz · trust the number?</div>
+      <p class="qstem">Four patients each read SpO₂ 92%. In which one is the <em>true</em> oxygenation most likely worse than the number suggests?</p>
+      <div class="opts" data-answer="2">
+        <button class="opt"><span class="key">A</span><span>A pale, well-perfused patient with a crisp pleth waveform</span></button>
+        <button class="opt"><span class="key">B</span><span>A young, normotensive post-op patient on 2 L with warm hands</span></button>
+        <button class="opt"><span class="key">C</span><span>A patient with darker skin and a damped, low-amplitude pleth tracing</span></button>
+        <button class="opt"><span class="key">D</span><span>A patient whose pleth matches the arterial line beat-for-beat</span></button>
+      </div>
+      <div class="explain">
+        <div class="et">C · Two strikes against the number</div>
+        <p>Pulse oximetry tends to <b>overestimate</b> SpO₂ in patients with darker skin — occult hypoxemia is missed roughly <b>three times as often</b> — and a poor-perfusion, low-amplitude pleth makes <em>any</em> reading unreliable. Both apply here, so the real saturation is probably below 92%. When the waveform is junk or the stakes are high, <b>confirm with an ABG.</b> And mind the cliff: ~90% already means PaO₂ ~60.</p>
+        <p class="src">Sjoding et al., NEJM 2020; JAMA 2022; MGH Manual, Hypoxemia.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 10 · BP + HR lie by staying normal -->
+  <section class="slide">
+    <div class="wrap">
+      <div class="eyebrow rd">Gauges #2 &amp; #3 · BP + HR</div>
+      <h2>"Stable vitals" is the most dangerous<br>phrase in the hospital.</h2>
+      <div class="grid g2" style="margin-top:8px">
+        <div class="mod b-red"><div class="mh"><span class="chdot" style="background:var(--pulse)"></span>Blood pressure</div><div class="mb">A normal BP <b>does not rule out shock</b> — young patients compensate right up until they fall off a cliff. Use the <b>shock index</b> (HR ÷ SBP): <b>&gt; 0.8</b> signals trouble even when each number looks fine alone. Track the <b>trend</b>, not the snapshot.</div></div>
+        <div class="mod b-red"><div class="mh"><span class="chdot" style="background:var(--pulse)"></span>Heart rate</div><div class="mb">Cardiac output = HR × stroke volume, so <b>bradycardia can be shock.</b> Don't be soothed by a HR of 55 in a gray, mottled patient. And beware the <b>inappropriately normal</b> HR — the β-blocked or elderly patient who simply can't mount a tachycardia.</div></div>
+      </div>
+      <div class="pull al">"Compensation is a patient lying politely. Believe the trend, not the moment."</div>
+      <p class="src">IBCC (EMCrit) — Shock; MGH Manual, Shock ("any of these can be normal — including BP").</p>
+    </div>
+  </section>
+
+  <!-- 11 · QUIZ 3 vignette -->
+  <section class="slide" data-quiz>
+    <div class="wrap">
+      <div class="eyebrow">Pop quiz · the bedside</div>
+      <div class="vignette">03:14 · RRT called. <b>72M, POD2.</b> Monitor reads: BP <b>108/56</b> · HR <b>96</b> · SpO₂ <b>94%</b> RA · Temp <b>37.1</b> · RR charted <b>18</b>. He's <b>more confused</b> than this morning. The nurse "just feels off about him."</div>
+      <p class="qstem">What is the single most important next move?</p>
+      <div class="opts" data-answer="1">
+        <button class="opt"><span class="key">A</span><span>Reassure the team — the vitals are basically normal</span></button>
+        <button class="opt"><span class="key">B</span><span>Count the RR yourself, and act on the new confusion</span></button>
+        <button class="opt"><span class="key">C</span><span>Order a CT head and wait for the result</span></button>
+        <button class="opt"><span class="key">D</span><span>Recheck the blood pressure in an hour</span></button>
+      </div>
+      <div class="explain">
+        <div class="et">B · The "normal" numbers were camouflage</div>
+        <p>You count it: the RR is actually <b>28</b>. Now re-read the room — <b>new confusion</b> + SBP ≈ 108 + RR &gt; 22 lights up <b>qSOFA</b> (RR &gt; 22, altered mentation, SBP ≤ 100). The charted RR was fiction; the soft BP was compensation; the nurse's gut was <b>data.</b> Two of three qSOFA criteria → treat as <b>sepsis until proven otherwise</b> and escalate now.</p>
+        <p class="src">MGH Manual 2025–26, Sepsis (qSOFA); IBCC — Shock.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 12 · OFF THE MONITOR -->
+  <section class="slide">
+    <div class="wrap">
+      <div class="eyebrow gr">Off the monitor</div>
+      <h2>The best perfusion monitors are<br>your <span class="accent-g">eyes</span> and your <span class="accent-g">hand.</span></h2>
+      <div class="grid g4" style="margin-top:8px">
+        <div class="mod b-green"><div class="mh">Mottling</div><div class="mb">Less sensitive, very <b>specific</b>, tracks mortality — and it usually <b>starts on the knees.</b> It signals endogenous vasoconstriction → think <b>pump support</b>, not just more squeeze.</div></div>
+        <div class="mod b-green"><div class="mh">Cap refill</div><div class="mb">Press a fingertip ~10s; <b>&lt;3s normal</b>, <b>&gt;5s bad.</b> Crude, free, and a <b>validated resuscitation target</b> (ANDROMEDA-SHOCK).</div></div>
+        <div class="mod b-green"><div class="mh">Cool limbs</div><div class="mb"><b>All four cool</b> beats any single one — an early sign of a clamped-down, low-output state.</div></div>
+        <div class="mod b-green"><div class="mh">Pulse pressure</div><div class="mb"><b>Narrow</b> (&lt;25% of SBP) = low stroke volume; <b>wide</b> = vasodilation. The cuff already told you — if you read it.</div></div>
+      </div>
+      <div class="pull gr">"Touch the knees. The monitor can't."</div>
+      <p class="src">IBCC (EMCrit) — Shock: bedside hemodynamic assessment.</p>
+    </div>
+  </section>
+
+  <!-- 13 · LACTATE -->
+  <section class="slide">
+    <div class="wrap">
+      <div class="eyebrow">The counterintuitive one</div>
+      <h2>Lactate is an <span class="accent-r">adrenaline</span> meter,<br>not an <span class="accent-c">oxygen</span> meter.</h2>
+      <p class="lede">We treat lactate like a tissue-hypoxia gauge. Usually it isn't — it mostly reflects <strong>endogenous epinephrine</strong> driving aerobic glycolysis in response to stress. Two consequences that flip the bedside logic:</p>
+      <div class="grid g2" style="margin-top:6px">
+        <div class="mod b-amber"><div class="mh">A high lactate</div><div class="mb">Still an <b>alarm.</b> Read it as <b>shock or impending disaster until proven otherwise</b> — and a sudden jump in the anion gap in a hospitalized patient means the same thing.</div></div>
+        <div class="mod b-cyan"><div class="mh">A normal lactate</div><div class="mb"><b>Not reassurance.</b> A patient with a blunted sympathetic response can be in genuine shock with a <b>perfectly normal lactate.</b></div></div>
+      </div>
+      <div class="pull">"Normal lactate is not a green light. It's just one quiet voice in a noisy room."</div>
+      <p class="src">IBCC / PulmCrit (Farkas) — understanding lactate.</p>
+    </div>
+  </section>
+
+  <!-- 13b · QUIZ 05 · lactate -->
+  <section class="slide" data-quiz data-tier="ext">
+    <div class="wrap">
+      <div class="eyebrow">Pop quiz · the reassuring lab that isn't</div>
+      <p class="qstem">A sick-looking patient with borderline-low BP. The lactate comes back <em>normal</em> at 1.4. How reassured are you?</p>
+      <div class="opts" data-answer="3">
+        <button class="opt"><span class="key">A</span><span>Very — a normal lactate rules out shock</span></button>
+        <button class="opt"><span class="key">B</span><span>Reassured enough to recheck only in 24 hours</span></button>
+        <button class="opt"><span class="key">C</span><span>It means the process must be purely cardiac</span></button>
+        <button class="opt"><span class="key">D</span><span>Not much — a normal lactate doesn't exclude shock, especially with a blunted stress response</span></button>
+      </div>
+      <div class="explain">
+        <div class="et">D · Normal lactate ≠ green light</div>
+        <p>Lactate mostly tracks an <b>endogenous epinephrine surge</b>, not oxygen debt — so a patient who can't mount that response, or who is early, can be in <b>genuine shock with a perfectly normal lactate.</b> A high lactate is an alarm; a normal one is just one quiet voice in a noisy room. Trust the whole picture — perfusion, mentation, the trend — not a single comforting number.</p>
+        <p class="src">IBCC / PulmCrit (Farkas).</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 14 · R.A.P.I.D. card -->
+  <section class="slide">
+    <div class="wrap">
+      <div class="eyebrow">The whole talk on one card</div>
+      <h2>When the pager goes off — go <span class="accent-r">R.A.P.I.D.</span></h2>
+      <div class="grid g2" style="margin-top:6px">
+        <div class="mod"><div class="mh"><span style="font-family:'Space Grotesk';color:var(--resp);font-size:18px;font-weight:700">R</span> · Rate</div><div class="mb"><b>Count the respiratory rate yourself</b>, for a full minute. The charted number is a guess.</div></div>
+        <div class="mod"><div class="mh"><span style="font-family:'Space Grotesk';color:var(--phosphor);font-size:18px;font-weight:700">A</span> · Assess perfusion</div><div class="mb"><b>Knees, cap refill, mentation</b> — read what the monitor can't show.</div></div>
+        <div class="mod"><div class="mh"><span style="font-family:'Space Grotesk';color:var(--pleth);font-size:18px;font-weight:700">P</span> · Pressure in context</div><div class="mb"><b>Shock index, the trend, the camouflage.</b> Is "normal" actually compensated?</div></div>
+        <div class="mod"><div class="mh"><span style="font-family:'Space Grotesk';color:var(--pulse);font-size:18px;font-weight:700">I</span> · Integrate</div><div class="mb"><b>Count how many vitals are off</b>, and trust the worry in the room.</div></div>
+      </div>
+      <div class="mod" style="margin-top:14px"><div class="mh"><span style="font-family:'Space Grotesk';color:var(--alarm);font-size:18px;font-weight:700">D</span> · Decide &amp; escalate</div><div class="mb">Calling for help — or intubating — is <b>not a sign of weakness.</b> Norepinephrine is the default pressor; <b>just say no to dopamine.</b></div></div>
+      <div class="pull al" style="margin-top:18px">Look. Count. Touch. Trend. Escalate.</div>
+    </div>
+  </section>
+
+  <!-- 15 · BEYOND THE VITALS (toolkit overview) -->
+  <section class="slide">
+    <div class="wrap">
+      <div class="eyebrow cy">Beyond the vitals · your toolkit</div>
+      <h2>You've read the room.<br>Now reach for the right tool — <span class="accent-c">fast ones first.</span></h2>
+      <p class="lede">Vitals start the story; these finish it. Rank your tools by <strong>speed</strong>, because a deteriorating patient won't wait on the lab — and the quickest ones are free or nearly instant.</p>
+      <div class="ladder" style="margin-top:16px">
+        <div class="rung"><div class="bar" style="background:var(--phosphor)"></div><div class="tier">INSTANT</div><div class="act"><b style="color:var(--mist)">Your eyes &amp; hands</b> — re-examine after every intervention (exam, exam, exam). <b style="color:var(--mist)">Fingerstick glucose</b> — the one number you can't miss in anyone altered; hypoglycemia is a 30-second fix wearing a stroke costume.</div></div>
+        <div class="rung"><div class="bar" style="background:var(--resp)"></div><div class="tier">MINUTES</div><div class="act"><b style="color:var(--mist)">VBG</b> (pH, lytes, Hgb, lactate) · <b style="color:var(--mist)">ECG → telemetry</b> · <b style="color:var(--mist)">portable CXR</b> · <b style="color:var(--mist)">POCUS</b> if you've got the hands. Each one earns its keep.</div></div>
+        <div class="rung"><div class="bar" style="background:var(--slate-dim)"></div><div class="tier">SLOWER</div><div class="act">Formal labs — CBC, CMP, troponin, cultures. Worth sending, but they take real time, so send them <em>early.</em></div></div>
+      </div>
+      <div class="pull">"If you're already sticking them, send it all. The extra tube is free — the repeat stick is not."</div>
+      <p class="src">MGH Housestaff Manual 2025–26; IBCC (EMCrit).</p>
+    </div>
+  </section>
+
+  <!-- 16 · QUIZ 4 · VBG -->
+  <section class="slide" data-quiz>
+    <div class="wrap">
+      <div class="eyebrow">Pop quiz · the highest-yield stick</div>
+      <div class="vignette">Hypotensive, tachypneic patient. The <b>pleth tracing is crisp</b> and SpO₂ reads <b>95%</b>. You want <b>pH, electrolytes, Hgb, and a lactate</b> — and you want them <b>now.</b></div>
+      <p class="qstem">What do you send?</p>
+      <div class="opts" data-answer="0">
+        <button class="opt"><span class="key">A</span><span>A VBG — pH, lytes, Hgb, and lactate back in minutes; the reliable pulse ox already covers oxygenation</span></button>
+        <button class="opt"><span class="key">B</span><span>An ABG — a sick patient always needs an arterial sample</span></button>
+        <button class="opt"><span class="key">C</span><span>A full metabolic panel, and wait for the lab to run it</span></button>
+        <button class="opt"><span class="key">D</span><span>Nothing until you have central access</span></button>
+      </div>
+      <div class="explain">
+        <div class="et">A · The VBG is the MVP</div>
+        <p>A peripheral VBG hands you <b>pH, pCO₂, bicarb, electrolytes, hemoglobin, glucose, ionized calcium, and a lactate</b> — usually in minutes. With a trustworthy pulse-ox waveform, you don't need the <b>PaO₂</b> that only an ABG adds, so the ABG just buys pain and complications (and ~15% of "ABGs" are accidentally venous anyway). <b>Pitfalls:</b> a VBG won't give you accurate oxygenation, and the venous O₂ sat is your quality-control check — if it's bizarre, the gas may be unreliable. Save the arterial stick for when you truly need the PaO₂ or the pleth is junk.</p>
+        <p class="src">IBCC / PulmCrit (Farkas), ABG vs VBG; MGH Manual, Respiratory Distress.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 17 · CXR + ECG -> TELE -->
+  <section class="slide">
+    <div class="wrap">
+      <div class="eyebrow rd">The pictures · CXR + ECG</div>
+      <h2>One film, one tracing —<br>then put them on a <span class="accent-p">leash.</span></h2>
+      <div class="grid g2" style="margin-top:8px">
+        <div class="mod b-red"><div class="mh"><span class="chdot" style="background:var(--pulse)"></span>Portable CXR · STAT</div><div class="mb"><b>Pearls:</b> a 60-second read of the big four — edema, infiltrate/aspiration, lobar collapse (mucus plug), pneumothorax. <b>Pitfalls:</b> a supine AP film hides effusions and small PTX, fakes cardiomegaly, and a normal film never rules out PE, early pneumonia, or ischemia.</div></div>
+        <div class="mod b-red"><div class="mh"><span class="chdot" style="background:var(--pulse)"></span>12-lead ECG → telemetry</div><div class="mb"><b>Pearls:</b> catches ischemia, hyperkalemia, QT and blocks, and dangerous rhythms in seconds — the cheapest test that changes management fastest. <b>Then leave them on the monitor:</b> one ECG is a photograph; telemetry is the surveillance tape.</div></div>
+      </div>
+      <div class="pull al">"A 12-lead is a snapshot. The next event is the one that kills — so catch it on tele."</div>
+      <p class="src">MGH Manual 2025–26, Respiratory Distress &amp; Telemetry.</p>
+    </div>
+  </section>
+
+  <!-- 18 · POCUS -->
+  <section class="slide">
+    <div class="wrap">
+      <div class="eyebrow gr">The probe · POCUS</div>
+      <h2>Ultrasound answers the question<br>the exam can't — <span class="accent-g">if you ask it precisely.</span></h2>
+      <p class="lede">In a crashing patient, a focused study (the RUSH idea — <strong>pump, tank, pipes</strong>) narrows undifferentiated shock in minutes, at the bedside, in real time.</p>
+      <div class="grid g2" style="margin-top:6px">
+        <div class="mod b-green"><div class="mh">What it nails · pearls</div><div class="mb">Pericardial effusion &amp; <b>tamponade</b>, gross LV function, a big <b>dilated RV</b> (PE / RV strain), <b>B-lines</b> for pulmonary edema, lung sliding to rule out PTX, free fluid (FAST), and a plethoric vs. collapsing <b>IVC</b> for volume context.</div></div>
+        <div class="mod b-cyan"><div class="mh">Where it bites · pitfalls</div><div class="mb">It's <b>operator-dependent</b> — only as good as the hands on the probe. The <b>IVC alone is an unreliable volume gauge</b>; never decide on it in isolation. And the cardinal sin: <b>scanning must not delay resuscitation.</b></div></div>
+      </div>
+      <div class="pull cy">"POCUS is a question you ask, not a picture you admire. One question, one answer, back to the patient."</div>
+      <p class="src">IBCC (EMCrit); RUSH protocol.</p>
+    </div>
+  </section>
+
+  <!-- 18b · QUIZ 07 · POCUS pitfall -->
+  <section class="slide" data-quiz data-tier="ext">
+    <div class="wrap">
+      <div class="eyebrow">Pop quiz · the probe's biggest trap</div>
+      <p class="qstem">Your undifferentiated-shock patient is hypotensive and getting sicker. What's the single most <em>dangerous</em> way to use POCUS here?</p>
+      <div class="opts" data-answer="3">
+        <button class="opt"><span class="key">A</span><span>A quick look at the heart for effusion and gross function</span></button>
+        <button class="opt"><span class="key">B</span><span>Checking for lung sliding to exclude pneumothorax</span></button>
+        <button class="opt"><span class="key">C</span><span>A FAST look for free fluid</span></button>
+        <button class="opt"><span class="key">D</span><span>Letting a prolonged, perfectionist scan delay resuscitation</span></button>
+      </div>
+      <div class="explain">
+        <div class="et">D · The cardinal sin</div>
+        <p>POCUS earns its keep by answering <b>one focused question fast</b> — pump, tank, pipes. The danger is treating it as an imaging study to admire while the patient deteriorates in front of you. (Honorable mention: deciding volume status on the <b>IVC alone</b>, which is notoriously unreliable.) Ask, answer, get back to resuscitating.</p>
+        <p class="src">IBCC (EMCrit); RUSH protocol.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 19 · THE GOAL -->
+  <section class="slide">
+    <div class="wrap">
+      <div class="eyebrow rd">The whole point of the consult</div>
+      <h2>You're really hunting for<br>just <span class="accent-p">three</span> things.</h2>
+      <p class="lede">Strip away the noise. Every rapid response is a search for one of three time-critical diagnoses. Find any of them, and the disposition writes itself.</p>
+      <div class="grid g3" style="margin-top:10px">
+        <div class="mod b-red"><div class="mh"><span class="chdot" style="background:var(--pulse)"></span>Catch #1</div><div style="font-family:'Space Grotesk';font-weight:700;font-size:22px;color:var(--mist);margin:2px 0 7px;letter-spacing:-.01em">Shock</div><div class="mb">Tissue isn't being perfused — and it loves hiding behind "normal" vitals. (See the entire first half of this talk.)</div></div>
+        <div class="mod b-cyan"><div class="mh"><span class="chdot" style="background:var(--pleth)"></span>Catch #2</div><div style="font-family:'Space Grotesk';font-weight:700;font-size:22px;color:var(--mist);margin:2px 0 7px;letter-spacing:-.01em">Respiratory failure</div><div class="mb">Active or impending. Can't oxygenate, can't ventilate, or simply tiring out in front of you.</div></div>
+        <div class="mod b-amber"><div class="mh"><span class="chdot" style="background:var(--resp)"></span>Catch #3</div><div style="font-family:'Space Grotesk';font-weight:700;font-size:22px;color:var(--mist);margin:2px 0 7px;letter-spacing:-.01em">Surgical abdomen</div><div class="mb">The catastrophe in the belly. So <b style="color:var(--resp)">press on the abdomen</b> — every single time.</div></div>
+      </div>
+      <div class="pull al">"Shock. Respiratory failure. Surgical abdomen. Miss one of these and nothing else you did mattered."</div>
+    </div>
+  </section>
+
+  <!-- 19b · QUIZ 08 · surgical abdomen -->
+  <section class="slide" data-quiz>
+    <div class="wrap">
+      <div class="eyebrow">Pop quiz · don't forget the belly</div>
+      <p class="qstem">Hypotensive, tachycardic, lactate climbing, no clear source on your chest and cardiac workup. Which bedside move best catches what you're missing?</p>
+      <div class="opts" data-answer="0">
+        <button class="opt"><span class="key">A</span><span>Put your hand on the abdomen and examine it — a rigid, peritonitic belly changes everything</span></button>
+        <button class="opt"><span class="key">B</span><span>Another round of fluids and recheck in an hour</span></button>
+        <button class="opt"><span class="key">C</span><span>Send a stat lipid panel</span></button>
+        <button class="opt"><span class="key">D</span><span>Repeat the ECG and wait</span></button>
+      </div>
+      <div class="explain">
+        <div class="et">A · Press on the belly — every time</div>
+        <p>One of your three must-not-miss diagnoses is an <b>acute surgical emergency</b>, and the abdomen is the easiest source to overlook on a "medical" rapid response. A <b>rigid, peritonitic, or pulsatile/expansile</b> abdomen turns this into a surgical or vascular emergency and an immediate consult — no volume of fluid or pressor fixes a perforated viscus or a ruptured AAA.</p>
+        <p class="src">The goal: shock · respiratory failure · surgical abdomen.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 20 · WHO NEEDS THE ICU -->
+  <section class="slide">
+    <div class="wrap">
+      <div class="eyebrow">Disposition · who needs the unit</div>
+      <h2>When the floor <span class="accent-r">can't hold</span> them.</h2>
+      <p class="lede">The unit is for patients whose physiology is outrunning the resources on the ward. Persistent hypotension is one trigger (next slide) — here are the rest:</p>
+      <div class="grid g2" style="margin-top:6px">
+        <div class="mod"><div class="mh">The eyeball test</div><div class="mb">Anyone who simply <b>looks like they're dying.</b> Your gestalt is a validated vital sign — if your gut says ICU, <b>listen to it.</b></div></div>
+        <div class="mod"><div class="mh">Can't wean the NRB</div><div class="mb">Maxed-out oxygen with nowhere left to go on the floor. Needing <b>HFNC / NIV / intubation</b> is needing the unit.</div></div>
+        <div class="mod b-red"><div class="mh"><span class="chdot" style="background:var(--pulse)"></span>Unstable bradycardia</div><div class="mb"><b>Atropine 1 mg</b> (q3–5 min, max 3 mg). No response? → <b>epinephrine 2–10 mcg/min</b> (or dopamine 5–20 mcg/kg/min) and get the <b>pacing pads on.</b></div></div>
+        <div class="mod b-red"><div class="mh"><span class="chdot" style="background:var(--pulse)"></span>Unstable tachyarrhythmia</div><div class="mb"><b>Synchronized cardioversion — now.</b> In a truly unstable patient, don't dawdle chasing the rhythm with drugs.</div></div>
+      </div>
+      <div class="pull">"If you're asking whether they need the ICU, you've usually already answered the question."</div>
+      <p class="src">MGH Manual 2025–26, ACLS Bradycardia &amp; Tachycardia.</p>
+    </div>
+  </section>
+
+  <!-- 20b · QUIZ 09 · unstable tachy -->
+  <section class="slide" data-quiz data-tier="ext">
+    <div class="wrap">
+      <div class="eyebrow">Pop quiz · unstable and fast</div>
+      <p class="qstem">Narrow-complex tachycardia at 190. The patient is now hypotensive, diaphoretic, and confused. Your move?</p>
+      <div class="opts" data-answer="2">
+        <button class="opt"><span class="key">A</span><span>IV adenosine and reassess</span></button>
+        <button class="opt"><span class="key">B</span><span>A fluid bolus and an oral beta-blocker</span></button>
+        <button class="opt"><span class="key">C</span><span>Synchronized cardioversion — now</span></button>
+        <button class="opt"><span class="key">D</span><span>Hold everything until the 12-lead is officially read</span></button>
+      </div>
+      <div class="explain">
+        <div class="et">C · Instability rewrites the algorithm</div>
+        <p>The moment a tachyarrhythmia produces <b>shock, altered mentation, ischemic chest pain, or acute heart failure</b>, it's <b>unstable</b> — and the answer is <b>immediate synchronized cardioversion</b>, not a drug trial. Adenosine and rate control are for the <em>stable</em> patient with time to spare. Sedate if you can, but don't make a hypotensive, obtunded patient wait on pharmacology.</p>
+        <p class="src">MGH Manual 2025–26, ACLS Tachycardia.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 21 · HYPOTENSION PLAY -->
+  <section class="slide">
+    <div class="wrap">
+      <div class="eyebrow rd">Persistent hypotension · the floor play</div>
+      <h2>Before you flood them —<br>ask if fluid will even <span class="accent-r">help.</span></h2>
+      <div class="ladder" style="margin-top:16px">
+        <div class="rung"><div class="bar" style="background:var(--phosphor)"></div><div class="tier">1 · TEST IT</div><div class="act"><b style="color:var(--mist)">Passive leg raise.</b> Lay them flat and lift the legs ~45° — a reversible ~300 mL "autotransfusion." A real bump in BP/perfusion = fluid-responsive; nothing = fluid won't fix this. Free, instant, and it undoes itself.</div></div>
+        <div class="rung"><div class="bar" style="background:var(--resp)"></div><div class="tier">2 · DOSE SMALL</div><div class="act">If you give fluid, use <b style="color:var(--mist)">LR (balanced) over NS</b> — and give <b style="color:var(--mist)">less than you think.</b> Provocatively, much of a bolus's BP bump may be the <b>cold fluid triggering an endogenous catecholamine surge</b>, not durable volume — and it extravasates fast. Albumin is reasonable in select patients (e.g. cirrhosis). Fluid is a drug; dose it.</div></div>
+        <div class="rung flag"><div class="bar" style="background:var(--alarm)"></div><div class="tier">3 · PRESSOR</div><div class="act"><b style="color:var(--alarm)">Start norepinephrine peripherally</b> through a good IV — don't wait for a central line. It's your most predictable move and your ticket to the unit. <b style="color:var(--mist)">When in doubt, norepi.</b></div></div>
+      </div>
+      <div class="pull al">"A bolus that 'worked' for ten minutes didn't work. Test, dose small, then norepi."</div>
+      <p class="src">PulmCrit "Myth-busting the fluid bolus" (Farkas); IBCC — peripheral vasopressors.</p>
+    </div>
+  </section>
+
+  <!-- 21b · QUIZ 10 · the disappearing bolus -->
+  <section class="slide" data-quiz data-tier="ext">
+    <div class="wrap">
+      <div class="eyebrow">Pop quiz · the bolus that "worked"</div>
+      <p class="qstem">You give a hypotensive floor patient a 1 L bolus. The BP rises nicely — then drifts back down 15 minutes later. What does that tell you, and what's next?</p>
+      <div class="opts" data-answer="3">
+        <button class="opt"><span class="key">A</span><span>It worked — keep bolusing liters until the BP holds</span></button>
+        <button class="opt"><span class="key">B</span><span>The cuff must be malfunctioning</span></button>
+        <button class="opt"><span class="key">C</span><span>Switch from LR to normal saline and re-bolus</span></button>
+        <button class="opt"><span class="key">D</span><span>The transient bump was largely reflexive / cold-fluid driven and the volume extravasated — start norepinephrine</span></button>
+      </div>
+      <div class="explain">
+        <div class="et">D · Test, dose small, then norepi</div>
+        <p>A bolus effect that evaporates in minutes is the tell: much of the bump is a <b>cold-fluid-triggered catecholamine surge</b> plus rapid <b>extravasation</b>, not durable preload. A <b>passive leg raise</b> would have predicted this for free. Stop chasing liters — which mostly buy edema — and move to a <b>peripheral norepinephrine</b> drip: your most predictable move and your ticket to the unit.</p>
+        <p class="src">PulmCrit "Myth-busting the fluid bolus" (Farkas); IBCC.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 22 · EXECUTIVE SUMMARY -->
+  <section class="slide">
+    <div class="wrap">
+      <div class="eyebrow gr">The executive summary</div>
+      <h2>The entire talk, on <span class="accent-g">one screen.</span></h2>
+      <div class="grid g2" style="margin-top:8px">
+        <div class="mod b-amber"><div class="mh">① Assess</div><div class="mb"><b>Count the RR yourself</b> — the chart is fiction, and it's the earliest, best single vital. <b>"Stable vitals" lie:</b> use shock index &amp; trends; BP, HR, and SpO₂ can all read normal in a dying patient. <b>Touch the knees</b> (mottling, cap refill) — and a normal lactate is <em>not</em> reassurance.</div></div>
+        <div class="mod b-cyan"><div class="mh">② Tools · fast first</div><div class="mb">Exam → fingerstick → <b>VBG</b> (pH, lytes, Hgb, lactate; ABG rarely needed) → <b>ECG + tele</b>, CXR → <b>POCUS</b> (one focused question). If you're sticking them, <b>send it all.</b></div></div>
+        <div class="mod b-red"><div class="mh">③ Find these three</div><div class="mb"><b>Shock · Respiratory failure · Surgical abdomen</b> (press on the belly). <b>ICU if:</b> looks like death, can't wean the NRB, persistent hypotension, or an unstable rhythm (brady → atropine then epi/pace; unstable tachy → sync cardiovert).</div></div>
+        <div class="mod b-green"><div class="mh">④ Always</div><div class="mb">Hypotension play: <b>PLR → small balanced fluid → peripheral norepi.</b> Trust the worried nurse. <b>Escalate early</b> — asking for help is not weakness.</div></div>
+      </div>
+      <div class="pull gr">Look · Count · Touch · Trend · Decide · Escalate.</div>
+    </div>
+  </section>
+
+  <!-- 23 · SOURCES -->
+  <section class="slide">
+    <div class="wrap">
+      <div class="eyebrow gr">The receipts</div>
+      <h2>Where this came from.</h2>
+      <div class="grid g2" style="margin-top:8px">
+        <div class="mod"><div class="mh">Manuals</div><div class="mb"><b>MGH Dept. of Medicine Housestaff Manual ("White Book") 2025–26</b> — Respiratory Distress, Hypoxemia/Hypercapnia, Shock, Sepsis, ACLS Brady/Tachy. · <b>IBCC / PulmCrit (EMCrit)</b>, Josh Farkas — Shock, vasoactive meds, ABG-vs-VBG, "Myth-busting the fluid bolus."</div></div>
+        <div class="mod"><div class="mh">Evidence</div><div class="mb"><b>SCCM 2023</b> deterioration guidelines · <b>Chan et al.</b> RRT meta-analysis (Arch Intern Med 2010) · <b>Badawy et al.</b> "Is everyone really breathing 20 times a minute?" (BMJ Qual Saf 2017) · <b>Churpek et al.</b> 2018 · <b>Sjoding et al.</b> occult hypoxemia (NEJM 2020).</div></div>
+      </div>
+      <div class="pull">"The monitor is a map, not the territory. Go walk the territory — and count the breaths."</div>
+      <p class="src">Now go answer the page. You've got this.</p>
+    </div>
+  </section>
+
+</div>
+
+<!-- ===== footer / nav ===== -->
+<div class="footer">
+  <div class="progress">
+    <span class="pcount"><span id="curN">01</span> / <span id="totN">15</span></span>
+    <div class="pbar"><div class="pfill" id="pfill"></div></div>
+  </div>
+  <span class="hint" id="hint">← →  navigate   ·   1–4 answer</span>
+  <div class="nav">
+    <button id="mode" class="mode" aria-pressed="false" aria-label="Toggle 30-minute core or full deck">⚡ 30-MIN</button>
+    <button id="prev" aria-label="Previous slide">PREV</button>
+    <button id="next" aria-label="Next slide">NEXT</button>
+  </div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+  var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  /* ---------- slide navigation (with 30-min / full toggle) ---------- */
+  var slides = Array.prototype.slice.call(document.querySelectorAll('.slide'));
+  var order = [];
+  var extOn = false;            // false = 30-min core (hide data-tier="ext")
+  var idx = 0;
+  var curN = document.getElementById('curN'), totN = document.getElementById('totN');
+  var pfill = document.getElementById('pfill');
+  var prevB = document.getElementById('prev'), nextB = document.getElementById('next');
+  var modeB = document.getElementById('mode');
+
+  function pad(n){ return String(n).padStart(2,'0'); }
+  function buildOrder(){
+    order = slides.filter(function(s){ return extOn || s.getAttribute('data-tier') !== 'ext'; });
+    if(order.length === 0){ order = slides.slice(); }
+  }
+  function render(){
+    for(var k=0;k<slides.length;k++){ slides[k].classList.remove('active'); }
+    var cur = order[idx];
+    cur.classList.add('active');
+    cur.scrollTop = 0;
+    curN.textContent = pad(idx+1);
+    totN.textContent = pad(order.length);
+    pfill.style.width = (order.length>1 ? (idx/(order.length-1)*100) : 0) + '%';
+    prevB.disabled = (idx===0);
+    nextB.disabled = (idx===order.length-1);
+  }
+  function show(n){ idx = Math.max(0, Math.min(order.length-1, n)); render(); }
+  function nextSlide(){ show(idx+1); }
+  function prevSlide(){ show(idx-1); }
+
+  function toggleExt(){
+    var current = order[idx];
+    extOn = !extOn;
+    buildOrder();
+    var ni = order.indexOf(current);
+    if(ni < 0){                 // current slide now hidden: land on nearest visible at/just before it
+      var pos = slides.indexOf(current), best = 0;
+      for(var k=0;k<order.length;k++){ if(slides.indexOf(order[k]) <= pos) best = k; else break; }
+      ni = best;
+    }
+    idx = ni;
+    modeB.textContent = extOn ? 'FULL DECK' : '\u26A1 30-MIN';
+    modeB.setAttribute('aria-pressed', String(extOn));
+    render();
+  }
+
+  prevB.addEventListener('click', prevSlide);
+  nextB.addEventListener('click', nextSlide);
+  modeB.addEventListener('click', toggleExt);
+
+  document.addEventListener('keydown', function(e){
+    if(e.key === 'ArrowRight' || e.key === 'PageDown' || e.key === ' '){ e.preventDefault(); nextSlide(); }
+    else if(e.key === 'ArrowLeft' || e.key === 'PageUp'){ e.preventDefault(); prevSlide(); }
+    else if(e.key === 'Home'){ e.preventDefault(); show(0); }
+    else if(e.key === 'End'){ e.preventDefault(); show(order.length-1); }
+    else if(/^[1-4]$/.test(e.key)){ answerByKey(parseInt(e.key,10)-1); }
+  });
+
+  /* swipe on touch */
+  var tx=0,ty=0;
+  document.addEventListener('touchstart',function(e){ tx=e.touches[0].clientX; ty=e.touches[0].clientY; },{passive:true});
+  document.addEventListener('touchend',function(e){
+    var dx=e.changedTouches[0].clientX-tx, dy=e.changedTouches[0].clientY-ty;
+    if(Math.abs(dx)>60 && Math.abs(dx)>Math.abs(dy)){ dx<0 ? nextSlide() : prevSlide(); }
+  },{passive:true});
+
+  /* ---------- quiz logic ---------- */
+  function wireQuiz(slide){
+    var box = slide.querySelector('.opts');
+    if(!box) return;
+    var correct = parseInt(box.getAttribute('data-answer'),10);
+    var opts = Array.prototype.slice.call(box.querySelectorAll('.opt'));
+    var explain = slide.querySelector('.explain');
+    var done = false;
+    opts.forEach(function(opt,i){
+      opt.addEventListener('click', function(){ choose(i); });
+    });
+    function choose(i){
+      if(done) return; done = true;
+      opts.forEach(function(o,j){
+        o.setAttribute('disabled','');
+        if(j===correct) o.classList.add('correct');
+        else if(j===i) o.classList.add('wrong');
+        else o.classList.add('muted');
+      });
+      if(explain) explain.classList.add('show');
+    }
+    slide._choose = choose;
+    slide._done = function(){ return done; };
+  }
+  slides.forEach(function(s){ if(s.hasAttribute('data-quiz')) wireQuiz(s); });
+
+  function answerByKey(i){
+    var s = order[idx];
+    if(s.hasAttribute('data-quiz') && s._choose && !s._done()){ s._choose(i); }
+  }
+
+  /* ---------- waveform monitor ---------- */
+  // Build one ECG beat (PQRST-ish) over a fixed sample window.
+  function buildBeat(len){
+    var a = new Array(len).fill(0);
+    function bump(center,width,amp){
+      for(var x=0;x<len;x++){ var d=(x-center)/width; a[x]+=amp*Math.exp(-d*d); }
+    }
+    bump(len*0.16, len*0.020, 0.16);   // P
+    bump(len*0.45, len*0.010,-0.18);   // Q
+    bump(len*0.50, len*0.0075,1.00);   // R
+    bump(len*0.55, len*0.012,-0.30);   // S
+    bump(len*0.74, len*0.030, 0.30);   // T
+    return a;
+  }
+  function buildPleth(len){
+    var a=new Array(len).fill(0);
+    for(var x=0;x<len;x++){
+      var p=x/len;
+      var up=Math.exp(-Math.pow((p-0.18)/0.10,2));      // systolic upstroke
+      var dn=0.55*Math.exp(-Math.pow((p-0.42)/0.20,2)); // dicrotic
+      a[x]=Math.max(up,dn*0.9);
+    }
+    return a;
+  }
+  var BEATLEN=120;
+  var beat=buildBeat(BEATLEN), pleth=buildPleth(BEATLEN);
+
+  function makeTrace(canvas, opts){
+    if(!canvas) return null;
+    var ctx;
+    try{ ctx = canvas.getContext('2d'); }catch(e){ return null; }
+    if(!ctx) return null;
+    var dpr = Math.min(window.devicePixelRatio||1, 2);
+    var W=0,H=0;
+    function resize(){
+      var r=canvas.getBoundingClientRect();
+      W=Math.max(2,Math.floor(r.width)); H=Math.max(2,Math.floor(r.height));
+      canvas.width=Math.floor(W*dpr); canvas.height=Math.floor(H*dpr);
+      ctx.setTransform(dpr,0,0,dpr,0,0);
+    }
+    resize();
+    window.addEventListener('resize', resize);
+
+    var lanes = opts.lanes; // array of {color, fn, period, amp, frac}
+    function laneY(frac){ return H*frac; }
+
+    function sampleVal(lane, s){
+      if(lane.fn==='ecg'){ return beat[((s%lane.period)/lane.period*BEATLEN|0)%BEATLEN]; }
+      if(lane.fn==='pleth'){ return pleth[((s%lane.period)/lane.period*BEATLEN|0)%BEATLEN]; }
+      // resp
+      return (Math.sin(s/lane.period*Math.PI*2)+1)/2;
+    }
+
+    function frame(phase){
+      ctx.clearRect(0,0,W,H);
+      for(var li=0; li<lanes.length; li++){
+        var lane=lanes[li];
+        var baseY=laneY(lane.frac);
+        ctx.beginPath();
+        ctx.lineWidth=1.6; ctx.strokeStyle=lane.color;
+        ctx.lineJoin='round'; ctx.lineCap='round';
+        ctx.shadowColor=lane.color; ctx.shadowBlur=6;
+        for(var x=0;x<=W;x++){
+          var s=x+phase;
+          var v=sampleVal(lane,s);
+          var y=baseY - (v-(lane.fn==='resp'?0.5:0))*lane.amp;
+          if(x===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+        }
+        ctx.stroke();
+        ctx.shadowBlur=0;
+      }
+    }
+    return { frame:frame, resize:resize, get W(){return W;} };
+  }
+
+  var barTrace = makeTrace(document.getElementById('ecgBar'), {
+    lanes:[ {color:'#FF5C6C', fn:'ecg', period:150, amp:34, frac:0.62} ]
+  });
+  var heroTrace = makeTrace(document.getElementById('ecgHero'), {
+    lanes:[
+      {color:'#FF5C6C', fn:'ecg',   period:150, amp:36, frac:0.26},
+      {color:'#46D5F2', fn:'pleth', period:150, amp:30, frac:0.58},
+      {color:'#F6C445', fn:'resp',  period:520, amp:30, frac:0.86}
+    ]
+  });
+
+  var phase=0;
+  function loop(){
+    phase = (phase + 1.4);
+    if(barTrace) barTrace.frame(phase);
+    if(heroTrace && slides[0].classList.contains('active')) heroTrace.frame(phase*0.92);
+    requestAnimationFrame(loop);
+  }
+  if(reduce){
+    if(barTrace) barTrace.frame(40);
+    if(heroTrace) heroTrace.frame(40);
+  } else if(barTrace || heroTrace){
+    requestAnimationFrame(loop);
+  }
+
+  /* subtle readout liveliness (gated by reduced motion) */
+  var rHR=document.getElementById('rHR'), rSp=document.getElementById('rSp'),
+      rRR=document.getElementById('rRR'), hHR=document.getElementById('hHR'),
+      hSp=document.getElementById('hSp');
+  if(!reduce){
+    setInterval(function(){
+      var hr = 94 + Math.floor(Math.random()*5);   // 94-98
+      var sp = 93 + Math.floor(Math.random()*3);   // 93-95
+      if(rHR) rHR.textContent = hr; if(hHR) hHR.textContent = hr;
+      if(rSp) rSp.textContent = sp; if(hSp) hSp.textContent = sp;
+    }, 1400);
+  }
+
+  /* init */
+  buildOrder();
+  show(0);
+})();
+</script>
+</body>
+</html>
